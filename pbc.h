@@ -21,6 +21,10 @@
 #define PBC_UNKNOWN 12
 #define PBC_REPEATED 128
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _pbc_array { char _data[PBC_ARRAY_CAP]; } pbc_array[1];
 
 struct pbc_slice {
@@ -100,5 +104,11 @@ int pbc_pattern_unpack(struct pbc_pattern *, struct pbc_slice * s , void * outpu
 
 void pbc_pattern_set_default(struct pbc_pattern * , void *data);
 void pbc_pattern_close_arrays(struct pbc_pattern *, void *data);
+
+int pbc_enum_id(struct pbc_env *env, const char *enum_type, const char *enum_name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

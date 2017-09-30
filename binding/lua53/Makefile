@@ -7,7 +7,7 @@ TARGET = protobuf.so
 
 all : $(TARGET)
 
-$(TARGET) : pbc-lua.c
+$(TARGET) : pbc-lua53.c
 	$(CC) $(CFLAGS) -shared -o $@ -I../.. -I$(LUADIR) -L../../build $^ -lpbc
 
 clean :

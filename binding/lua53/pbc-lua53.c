@@ -4,20 +4,15 @@ extern "C" {
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
-
-#include "pbc.h"
-
 #ifdef __cplusplus
 }
 #endif
 
-#include <stdbool.h>
 #if defined(__APPLE__)
-    #include <malloc/malloc.h>
+#include <malloc/malloc.h>
 #else
-    #include <malloc.h>
+#include <malloc.h>
 #endif
-
 
 #ifndef _MSC_VER
 #include <stdbool.h>
@@ -29,25 +24,7 @@ extern "C" {
 #include <stdlib.h>
 #include <stdint.h>
 
-#if LUA_VERSION_NUM == 501
-
-#define lua_rawlen lua_objlen
-#define luaL_newlib(L ,reg) luaL_register(L,"protobuf.c",reg)
-#define luaL_buffinit(L , _ ) 
-#define luaL_prepbuffsize( b , cap ) malloc(cap)
-#define _Free(p) free(p)
-#undef luaL_addsize
-#define luaL_addsize(b , len) lua_pushlstring(L, temp , len) ; free(temp)
-#define luaL_pushresult(b) 
-#define luaL_checkversion(L)
-
-#else
-
-#define _Free(p)
-
-#endif
-
-#define UNUSED(x) ((void)(x))  /* to avoid warnings */
+#include "pbc.h"
 
 static inline void *
 checkuserdata(lua_State *L, int index) {
@@ -123,64 +100,14 @@ _rmessage_delete(lua_State *L) {
 }
 
 static int
-_rmessage_integer(lua_State *L) {
-	struct pbc_rmessage * m = (struct pbc_rmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int index = luaL_checkinteger(L,3);
-	int32_t v = (int32_t)pbc_rmessage_integer(m, key, index, NULL);
-
-	lua_pushinteger(L,v);
-
-	return 1;
-}
-
-static int
-_rmessage_int32(lua_State *L) {
-	struct pbc_rmessage * m = (struct pbc_rmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int index = luaL_checkinteger(L,3);
-	uint32_t v = pbc_rmessage_integer(m, key, index, NULL);
-	lua_pushlightuserdata(L,(void *)(intptr_t)v);
-
-	return 1;
-}
-
-
-static int
-_rmessage_int64(lua_State *L) {
-	struct pbc_rmessage * m = (struct pbc_rmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int index = luaL_checkinteger(L,3);
-	uint32_t v[2];
-	v[0] = pbc_rmessage_integer(m, key, index, &v[1]);
-
-	lua_pushlstring(L,(const char *)v,sizeof(v));
-
-	return 1;
-}
-
-static int
-_rmessage_int52(lua_State *L) {
+_rmessage_int(lua_State *L) {
 	struct pbc_rmessage * m = (struct pbc_rmessage *)checkuserdata(L,1);
 	const char * key = luaL_checkstring(L,2);
 	int index = luaL_checkinteger(L,3);
 	uint32_t hi,low;
 	low = pbc_rmessage_integer(m, key, index, &hi);
 	int64_t v = (int64_t)((uint64_t)hi << 32 | (uint64_t)low);
-	lua_pushnumber(L,(lua_Number)v);
-
-	return 1;
-}
-
-static int
-_rmessage_uint52(lua_State *L) {
-	struct pbc_rmessage * m = (struct pbc_rmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int index = luaL_checkinteger(L,3);
-	uint32_t hi,low;
-	low = pbc_rmessage_integer(m, key, index, &hi);
-	uint64_t v = (uint64_t)hi << 32 | (uint64_t)low;
-	lua_pushnumber(L,(lua_Number)v);
+	lua_pushinteger(L,v);
 
 	return 1;
 }
@@ -271,19 +198,6 @@ _wmessage_delete(lua_State *L) {
 
 
 static int
-_wmessage_integer(lua_State *L) {
-	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int number = luaL_checkinteger(L,3);
-	uint32_t hi = 0;
-	if (number < 0)
-		hi = ~0;
-	pbc_wmessage_integer(m, key, number, hi);
-
-	return 0;
-}
-
-static int
 _wmessage_real(lua_State *L) {
 	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
 	const char * key = luaL_checkstring(L,2);
@@ -318,64 +232,16 @@ _wmessage_message(lua_State *L) {
 }
 
 static int
-_wmessage_int32(lua_State *L) {
+_wmessage_int(lua_State *L) {
 	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
 	const char * key = luaL_checkstring(L,2);
-	if (!lua_islightuserdata(L,3)) {
-		return luaL_error(L,"Need a lightuserdata for int32");
+	int64_t number;
+	// compat float for some historical reasons.
+	if (lua_isinteger(L, 3)) {
+		number = lua_tointeger(L,3);
+	} else {
+		number = (int64_t)lua_tonumber(L,3);
 	}
-	void *number = lua_touserdata(L,3);
-	pbc_wmessage_integer(m, key, (uint32_t)(intptr_t)number , 0);
-	return 0;
-}
-
-static int
-_wmessage_int64(lua_State *L) {
-	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	switch (lua_type(L,3)) {
-	case LUA_TSTRING : {
-		size_t len = 0;
-		const char * number = lua_tolstring(L,3,&len);
-		if (len !=8 ) {
-			return luaL_error(L,"Need an 8 length string for int64");
-		}
-		const uint32_t * v = (const uint32_t *) number;
-		pbc_wmessage_integer(m, key, v[0] , v[1]);
-		break;
-	}
-	case LUA_TLIGHTUSERDATA : {
-		void * v = lua_touserdata(L,3);
-		uint64_t v64 = (uintptr_t)v;
-		pbc_wmessage_integer(m, key, (uint32_t)v64 , (uint32_t)(v64>>32));
-		break;
-	}
-	default :
-		return luaL_error(L, "Need an int64 type");
-	}
-	return 0;
-}
-
-static int
-_wmessage_int52(lua_State *L) {
-	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	int64_t number = (int64_t)(luaL_checknumber(L,3));
-	uint32_t hi = (uint32_t)(number >> 32);
-	pbc_wmessage_integer(m, key, (uint32_t)number, hi);
-
-	return 0;
-}
-
-static int
-_wmessage_uint52(lua_State *L) {
-	struct pbc_wmessage * m = (struct pbc_wmessage *)checkuserdata(L,1);
-	const char * key = luaL_checkstring(L,2);
-	lua_Number v = (luaL_checknumber(L,3));
-	if (v < 0) {
-		return luaL_error(L, "negative number : %f passed to unsigned field",v);
-	}
-	uint64_t number = (uint64_t)v;
 	uint32_t hi = (uint32_t)(number >> 32);
 	pbc_wmessage_integer(m, key, (uint32_t)number, hi);
 
@@ -442,10 +308,10 @@ _pattern_delete(lua_State *L) {
 static void *
 _push_value(lua_State *L, char * ptr, char type) {
 	switch(type) {
-		case 'u': {
+		case 'd': {
 			uint64_t v = *(uint64_t*)ptr;
 			ptr += 8;
-			lua_pushnumber(L,(lua_Number)v);
+			lua_pushinteger(L, v);
 			break;
 		}
 		case 'i': {
@@ -458,23 +324,6 @@ _push_value(lua_State *L, char * ptr, char type) {
 			int32_t v = *(int32_t*)ptr;
 			ptr += 4;
 			lua_pushboolean(L,v);
-			break;
-		}
-		case 'p': {
-			uint32_t v = *(uint32_t*)ptr;
-			ptr += 4;
-			lua_pushlightuserdata(L,(void *)(intptr_t)v);
-			break;
-		}
-		case 'x': {
-			lua_pushlstring(L,ptr,8);
-			ptr += 8;
-			break;
-		}
-		case 'd': {
-			int64_t v = *(int64_t*)ptr;
-			ptr += 8;
-			lua_pushnumber(L,(lua_Number)v);
 			break;
 		}
 		case 'r': {
@@ -511,28 +360,16 @@ _push_array(lua_State *L, pbc_array array, char type, int index) {
 		lua_pushinteger(L, v);
 		break;
 	}
-	case 'U': {
-		uint32_t hi = 0;
-		uint32_t low = pbc_array_integer(array, index, &hi);
-		uint64_t v = (uint64_t)hi << 32 | (uint64_t)low;
-		lua_pushnumber(L, (lua_Number)v);
-		break;
-	}
 	case 'D': {
 		uint32_t hi = 0;
 		uint32_t low = pbc_array_integer(array, index, &hi);
 		uint64_t v = (uint64_t)hi << 32 | (uint64_t)low;
-		lua_pushnumber(L, (lua_Number)((int64_t)v));
+		lua_pushinteger(L, v);
 		break;
 	}
 	case 'B': {
 		int v = pbc_array_integer(array, index, NULL);
 		lua_pushboolean(L, v);
-		break;
-	}
-	case 'P': {
-		uint32_t v = pbc_array_integer(array, index, NULL);
-		lua_pushlightuserdata(L,(void *)(intptr_t)v);
 		break;
 	}
 	case 'X': {
@@ -601,15 +438,15 @@ _pattern_unpack(lua_State *L) {
 		return 0;
 	}
 	lua_checkstack(L, format_sz + 3);
-	size_t i;
+	int i;
 	char * ptr = temp;
-	bool is_array = false;
+	bool array = false;
 	for (i=0;i<format_sz;i++) {
 		char type = format[i];
 		if (type >= 'a' && type <='z') {
 			ptr = (char *)_push_value(L,ptr,type);
 		} else {
-			is_array = true;
+			array = true;
 			int n = pbc_array_size((struct _pbc_array *)ptr);
 			lua_createtable(L,n,0);
 			int j;
@@ -619,7 +456,7 @@ _pattern_unpack(lua_State *L) {
 			ptr += sizeof(pbc_array);
 		}
 	}
-	if (is_array) {
+	if (array) {
 		pbc_pattern_close_arrays(pat, temp);
 	}
 	return format_sz;
@@ -633,13 +470,8 @@ _get_value(lua_State *L, int index, char * ptr, char type) {
 			memcpy(ptr, &v, 4);
 			return ptr + 4;
 		}
-		case 'u': {
-			uint64_t v = (uint64_t)luaL_checknumber(L, index);
-			memcpy(ptr, &v, 8);
-			return ptr + 8;
-		}
 		case 'd': {
-			int64_t v = (int64_t)luaL_checknumber(L, index);
+			int64_t v = (int64_t)luaL_checkinteger(L, index);
 			memcpy(ptr, &v, 8);
 			return ptr + 8;
 		}
@@ -647,17 +479,6 @@ _get_value(lua_State *L, int index, char * ptr, char type) {
 			int32_t v = lua_toboolean(L, index);
 			memcpy(ptr, &v, 4);
 			return ptr + 4;
-		}
-		case 'p': {
-			void *p = lua_touserdata(L, index);
-			uint32_t v = (uint32_t)(intptr_t)p;
-			memcpy(ptr, &v , 4);
-			return ptr + 4;
-		}
-		case 'x': {
-			const char * i64 = luaL_checkstring(L, index);
-			memcpy(ptr, i64, 8);
-			return ptr + 8;
 		}
 		case 'r': {
 			double v = luaL_checknumber(L, index);
@@ -706,31 +527,14 @@ _get_array_value(lua_State *L, pbc_array array, char type) {
 			pbc_array_push_integer(array, v, hi);
 			break;
 		}
-		case 'U' : {
-			uint64_t v = (uint64_t)luaL_checknumber(L, -1);
-			pbc_array_push_integer(array, (uint32_t)v, (uint32_t)(v >> 32));
-			break;
-		}
 		case 'D' : {
-			int64_t v = (int64_t)luaL_checknumber(L, -1);
+			uint64_t v = (uint64_t)luaL_checknumber(L, -1);
 			pbc_array_push_integer(array, (uint32_t)v, (uint32_t)(v >> 32));
 			break;
 		}
 		case 'B': {
 			int32_t v = lua_toboolean(L, -1);
 			pbc_array_push_integer(array, v ? 1: 0, 0);
-			break;
-		}
-		case 'P': {
-			void *p = lua_touserdata(L, -1);
-			uint32_t v = (uint32_t)(intptr_t)p;
-			pbc_array_push_integer(array, v, 0);
-			break;
-		}
-		case 'X': {
-			const char * i64 = luaL_checkstring(L, -1);
-			uint64_t v = *(uint64_t *)i64;
-			pbc_array_push_integer(array, (uint32_t)v, (uint32_t)(v >> 32));
 			break;
 		}
 		case 'R': {
@@ -789,7 +593,7 @@ _pattern_pack(lua_State *L) {
 
 	char * ptr = data;
 
-    size_t i;
+	int i;
 
 	for (i=0;i<format_sz;i++) {
 		if (format[i] >= 'a' && format[i] <='z') {
@@ -810,7 +614,6 @@ _pattern_pack(lua_State *L) {
 	}
 
 	luaL_Buffer b;
-	UNUSED(&b);
 	luaL_buffinit(L, &b);
 
 	int cap = 128;
@@ -825,7 +628,6 @@ _pattern_pack(lua_State *L) {
 
 		if (ret < 0) {
 			cap = cap * 2;
-			_Free(temp);
 			continue;
 		}
 
@@ -842,18 +644,15 @@ static int
 _pattern_size(lua_State *L) {
 	size_t sz =0;
 	const char *format = luaL_checklstring(L,1,&sz);
-	size_t i;
+	int i;
 	int size = 0;
 	for (i=0;i<sz;i++) {
 		switch(format[i]) {
 		case 'b': 
 		case 'i':
-		case 'p':
 			size += 4;
 			break;
 		case 'r':
-		case 'x': 
-		case 'u':
 		case 'd':
 			size += 8;
 			break;
@@ -891,6 +690,7 @@ new_array(lua_State *L, int id, const char *key) {
 static void
 push_value(lua_State *L, int type, const char * type_name, union pbc_value *v) {
 	switch(type) {
+	case PBC_FIXED32:
 	case PBC_INT:
 		lua_pushinteger(L, (int)v->i.low);
 		break;
@@ -914,19 +714,10 @@ push_value(lua_State *L, int type, const char * type_name, union pbc_value *v) {
 		lua_call(L, 2 , 1);
 		break;
 	case PBC_FIXED64:
-		lua_pushlstring(L, (const char *)&(v->i), 8);
-		break;
-	case PBC_FIXED32:
-		lua_pushlightuserdata(L,(void *)(intptr_t)v->i.low);
-		break;
+	case PBC_UINT: 
 	case PBC_INT64: {
 		uint64_t v64 = (uint64_t)(v->i.hi) << 32 | (uint64_t)(v->i.low);
-		lua_pushnumber(L,(lua_Number)(int64_t)v64);
-		break;
-	}
-	case PBC_UINT: {
-		uint64_t v64 = (uint64_t)(v->i.hi) << 32 | (uint64_t)(v->i.low);
-		lua_pushnumber(L,(lua_Number)v64);
+		lua_pushinteger(L,v64);
 		break;
 	}
 	default:
@@ -947,6 +738,7 @@ decode_cb(void *ud, int type, const char * type_name, union pbc_value *v, int id
 		// undefined field
 		return;
 	}
+
 	if (type & PBC_REPEATED) {
 		push_value(L, type & ~PBC_REPEATED, type_name, v);
 		new_array(L, id , key);	// func.decode table.key table.id value array
@@ -1023,15 +815,19 @@ _clear_gcobj(lua_State *L) {
 	free(obj->msg);
 	obj->pat = NULL;
 	obj->msg = NULL;
-	pbc_delete(obj->env);
-	obj->env = NULL;
+	if (obj->env) {
+		pbc_delete(obj->env);
+		obj->env = NULL;
+	}
 
 	return 0;
 }
 
 static int
 _gc(lua_State *L) {
-	struct gcobj * obj = (struct gcobj *)lua_newuserdata(L,sizeof(*obj));
+	struct gcobj * obj;
+	lua_settop(L,1);
+	obj	= (struct gcobj *)lua_newuserdata(L,sizeof(*obj));
 	obj->env = (struct pbc_env *)lua_touserdata(L,1);
 	obj->size_pat = 0;
 	obj->cap_pat = 4;
@@ -1072,10 +868,6 @@ _add_rmessage(lua_State *L) {
 	return 0;
 }
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 int
 luaopen_protobuf_c(lua_State *L) {
 	luaL_Reg reg[] = {
@@ -1084,25 +876,17 @@ luaopen_protobuf_c(lua_State *L) {
 		{"_env_type", _env_type },
 		{"_rmessage_new" , _rmessage_new },
 		{"_rmessage_delete" , _rmessage_delete },
-		{"_rmessage_integer" , _rmessage_integer },
-		{"_rmessage_int32", _rmessage_int32 },
-		{"_rmessage_int64", _rmessage_int64 },
-		{"_rmessage_int52", _rmessage_int52 },
-		{"_rmessage_uint52", _rmessage_uint52 },
+		{"_rmessage_int", _rmessage_int },
 		{"_rmessage_real" , _rmessage_real },
 		{"_rmessage_string" , _rmessage_string },
 		{"_rmessage_message" , _rmessage_message },
 		{"_rmessage_size" , _rmessage_size },
 		{"_wmessage_new", _wmessage_new },
 		{"_wmessage_delete", _wmessage_delete },
-		{"_wmessage_integer", _wmessage_integer },
 		{"_wmessage_real", _wmessage_real },
 		{"_wmessage_string", _wmessage_string },
 		{"_wmessage_message", _wmessage_message },
-		{"_wmessage_int32", _wmessage_int32 },
-		{"_wmessage_int64", _wmessage_int64 },
-		{"_wmessage_int52", _wmessage_int52 },
-		{"_wmessage_uint52", _wmessage_uint52 },
+		{"_wmessage_int", _wmessage_int },
 		{"_wmessage_buffer", _wmessage_buffer },
 		{"_wmessage_buffer_string", _wmessage_buffer_string },
 		{"_pattern_new", _pattern_new },
@@ -1124,7 +908,3 @@ luaopen_protobuf_c(lua_State *L) {
 
 	return 1;
 }
-
-#ifdef __cplusplus
-}
-#endif
